@@ -1,16 +1,30 @@
 import difflib
 import os
 import openai
-import asyncio
+import functools
 
 # Get the OpenAI API key from an environment variable
+key = ""
 
 # Use AsyncOpenAI for non-blocking API calls
-client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", key))
 
 if not client.api_key:
     raise ValueError("OPENAI_API_KEY environment variable not set")
 
+def log_function_call_async(func):
+    @functools.wraps(func)
+    async def wrapper(*args, **kwargs):
+        print(f"Calling function: {func.__name__}")
+        print(f"  Arguments: args={args}, kwargs={kwargs}")
+        result = await func(*args, **kwargs)
+        print(f"  Function {func.__name__} returned: {result}")
+        return result
+    return wrapper
+
+
+
+@log_function_call_async
 async def call_openai_async(messages: list, model="gpt-4o-mini") -> str:
     """Calls the OpenAI API asynchronously."""
     response = await client.chat.completions.create(

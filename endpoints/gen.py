@@ -2,12 +2,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import ORJSONResponse
 from models import GenRequest
 from git import Git
-from utils import calculate_diffs, call_openai_async, SYSTEM_PROMPT
+from utils import calculate_diffs, call_openai_async, SYSTEM_PROMPT, log_function_call_async
 import orjson
 
 router = APIRouter(default_response_class=ORJSONResponse)
 
 @router.post("/gen")
+@log_function_call_async
 async def generate(request: GenRequest):
     git = Git(request.url)
 
