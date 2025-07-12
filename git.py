@@ -7,6 +7,7 @@ class Git:
         self.url = url
         self.username = self._get_username_from_url()
         self.repo_name = self._get_repo_name_from_url()
+        self._found_repo_path = None
 
     def _get_username_from_url(self):
         path = urlparse(self.url).path
@@ -20,6 +21,35 @@ class Git:
         repo_name = os.path.splitext(os.path.basename(path))[0]
         return repo_name
 
+    def _find_repo_path(self, base_path):
+        """
+        Recursively searches for a git repository with a matching remote URL.
+        Returns the path to the repository if found, otherwise None.
+        """
+        if self._found_repo_path and os.path.isdir(self._found_repo_path):
+            return self._found_repo_path
+
+        if not os.path.isdir(base_path):
+            return None
+
+        for root, dirs, _ in os.walk(base_path):
+            if '.git' in dirs:
+                repo_path_candidate = root
+                dirs[:] = []
+                try:
+                    remote_url = subprocess.check_output(
+                        ['git', 'config', '--get', 'remote.origin.url'],
+                        cwd=repo_path_candidate,
+                        text=True,
+                        stderr=subprocess.DEVNULL
+                    ).strip()
+                    if remote_url == self.url:
+                        self._found_repo_path = repo_path_candidate
+                        return repo_path_candidate
+                except subprocess.CalledProcessError:
+                    continue
+        return None
+
     def verify_access(self):
         """Verifies access to the git repository."""
         try:
@@ -28,16 +58,12 @@ class Git:
         except subprocess.CalledProcessError:
             return False
 
-    def is_cloned(self, path="repos"):
+    def is_cloned(self, base_path="repos"):
         """Checks if the repository is already cloned, and if so, pulls the latest changes."""
-        if not self.username:
-            clone_dir = path
-        else:
-            clone_dir = os.path.join(path, self.username)
-        repo_path = os.path.join(clone_dir, self.repo_name)
+        repo_path = self._find_repo_path(base_path)
 
-        if os.path.isdir(repo_path):
-            print(f"Repository '{self.repo_name}' already exists. Pulling latest changes...")
+        if repo_path:
+            print(f"Repository '{self.repo_name}' already exists at '{repo_path}'. Pulling latest changes...")
             try:
                 subprocess.run(
                     ['git', 'pull'],
@@ -52,34 +78,38 @@ class Git:
             return True
         return False
 
-    def clone(self, path="repos"):
+    def clone(self, base_path="repos"):
         """Clones the repository into the specified path."""
-        if not self.username:
-            clone_dir = path
-        else:
-            clone_dir = os.path.join(path, self.username)
-
-        repo_dir = os.path.join(clone_dir, self.repo_name)
-
-        if not os.path.isdir(repo_dir):
-            try:
-                os.makedirs(clone_dir, exist_ok=True)
-                subprocess.run(['git', 'clone', self.url], check=True, cwd=clone_dir)
-                return True
-            except subprocess.CalledProcessError as e:
-                print(f"Error cloning repository: {e.stderr.decode()}")
-                return False
-        else:
+        if self._find_repo_path(base_path):
             print(f"Repository '{self.repo_name}' already cloned.")
             return False
 
-    def get_codebase(self, path="repos"):
-        """Returns the entire codebase as a hashmap, filtered by code extensions."""
         if not self.username:
-            clone_dir = path
+            clone_dir = base_path
         else:
-            clone_dir = os.path.join(path, self.username)
-        repo_path = os.path.join(clone_dir, self.repo_name)
+            clone_dir = os.path.join(base_path, self.username)
+
+        repo_dir = os.path.join(clone_dir, self.repo_name)
+
+        if os.path.isdir(repo_dir):
+            print(f"Directory '{repo_dir}' already exists but is not the correct repository. Cloning skipped.")
+            return False
+
+        try:
+            os.makedirs(clone_dir, exist_ok=True)
+            subprocess.run(['git', 'clone', self.url], check=True, cwd=clone_dir)
+            self._found_repo_path = repo_dir
+            return True
+        except subprocess.CalledProcessError as e:
+            print(f"Error cloning repository: {e.stderr.decode()}")
+            return False
+
+    def get_codebase(self, base_path="repos"):
+        """Returns the entire codebase as a hashmap, filtered by code extensions."""
+        repo_path = self._find_repo_path(base_path)
+        if not repo_path:
+            print(f"Repository for URL '{self.url}' not found in '{base_path}'.")
+            return {}
 
         codebase = {}
         code_extensions = [
