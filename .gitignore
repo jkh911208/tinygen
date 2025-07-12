@@ -1,0 +1,37 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+
+# Virtual environment
+venv/
+.venv/
+
+# Dependencies
+node_modules/
+
+# IDE-specific files
+.idea/
+.vscode/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Git repository clones
+repos/
+
+# Environment variables
+.env
+
+# Logs
+*.log
+
+# Testing
+.pytest_cache/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
