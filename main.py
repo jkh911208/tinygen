@@ -1,6 +1,7 @@
 import os
 import openai
 import difflib
+import json
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel
@@ -35,31 +36,7 @@ async def generate(request: GenRequest):
             messages=[
                 {
                     "role": "system",
-                    "content": """You are a silent, automated code modification engine. Your sole purpose is to output modified code based on a user request. You will be given a codebase and a prompt, and you must return the new state of the changed files.
-
-Follow these rules strictly:
-1. Your entire response will consist of one or more file blocks.
-2. Each file block begins with a separator line: `--- FILE_PATH: [path/to/your/file.ext] ---`
-3. For **modified** or **newly created** files, the separator line is followed by the complete, new content of the file, from the first line to the last. Do not use code blocks (```) or any other formatting.
-4. For **deleted** files, the separator line is followed by absolutely nothing. The content is empty.
-5. You MUST NOT include any other text, explanations, apologies, or comments. Your response must be only the file blocks.
-6. Only change the code that is absolutely necessary to complete the user's request. Do not reformat, refactor, or make any other unnecessary changes to the code.
-7. Do not trim or truncate the last newline character if the original file had one. Maintain the exact newline status of the original file.
-
-**Example of a valid response:**
-
---- FILE_PATH: src/app.js ---
-// new content for app.js
-// ... all lines of the file ...
-console.log("This is the new app.js");
---- FILE_PATH: src/styles.css ---
-/* new styles.css file content */
-body {
-  color: blue;
-}
---- FILE_PATH: old/component.js ---
-
-In this example, `src/app.js` was modified, `src/styles.css` was created, and `old/component.js` was deleted."""
+                    "content": """You are a silent, automated code modification engine. Your sole purpose is to output modified code based on a user request. You will be given a codebase and a prompt, and you must return the new state of the changed files.\n\nFollow these rules strictly:\n1. Your entire response MUST be a single JSON object.\n2. The keys of the JSON object are the file paths (e.g., `src/app.js`).\n3. The values of the JSON object are the complete, new content of the file, from the first line to the last. Do not use code blocks (```) or any other formatting within the content.\n4. For **deleted** files, the value should be an empty string (`""`).\n5. You MUST NOT include any other text, explanations, apologies, or comments outside the JSON object. Your response must be ONLY the JSON object.\n6. Only change the code that is absolutely necessary to complete the user's request. Do not reformat, refactor, or make any other unnecessary changes to the code.\n7. Do not trim or truncate the last newline character if the original file had one. Maintain the exact newline status of the original file.\n\n**Example of a valid response:**\n\n```json\n{\n  "src/app.js": "// new content for app.js\n// ... all lines of the file ...\nconsole.log(\"This is the new app.js\");\n",\n  "src/styles.css": "/* new styles.css file content */\nbody {\n  color: blue;\n}\n",\n  "old/component.js": ""\n}\n```\n\nIn this example, `src/app.js` was modified, `src/styles.css` was created, and `old/component.js` was deleted."""
                 },
                 {
                     "role": "user",
@@ -67,34 +44,27 @@ In this example, `src/app.js` was modified, `src/styles.css` was created, and `o
                 }
             ]
         )
-        modified_content = response.choices[0].message.content
-        print("###start modified content")
-        print(modified_content)
-        print("###finish modified content")
+        modified_content_str = response.choices[0].message.content
+        # print("###start modified content")
+        # print(modified_content_str)
+        # print("###finish modified content")
+
+        # Attempt to parse the JSON response
+        try:
+            modified_files_dict = json.loads(modified_content_str)
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to parse AI response as JSON: {e}")
+
         diffs = {}
-        file_separator = '--- FILE_PATH: '
-        modified_files = modified_content.split(file_separator)
-
-        for file_block in modified_files:
-            if not file_block.strip():
-                continue
-
-            try:
-                path, new_code = file_block.split(' ---', 1)
-                path = path.strip()
-
-                original_code = codebase.get(path, '')
-                diff = difflib.unified_diff(
-                    original_code.splitlines(keepends=True),
-                    new_code.splitlines(keepends=True),
-                    fromfile=f'a/{path}',
-                    tofile=f'b/{path}',
-                )
-                diffs[path] = ''.join(diff)
-            except ValueError:
-                # Handle cases where the split doesn't work as expected
-                print(f"Could not parse file block: {file_block}")
-                continue
+        for path, new_code in modified_files_dict.items():
+            original_code = codebase.get(path, '')
+            diff = difflib.unified_diff(
+                original_code.splitlines(keepends=True),
+                new_code.splitlines(keepends=True),
+                fromfile=f'a/{path}',
+                tofile=f'b/{path}',
+            )
+            diffs[path] = ''.join(diff)
 
         for file, diff in diffs.items():
             print(f"###--- FILE_PATH: {file} ---###")
