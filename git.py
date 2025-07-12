@@ -1,5 +1,5 @@
 import os
-import subprocess
+import asyncio
 from urllib.parse import urlparse
 
 class Git:
@@ -21,66 +21,81 @@ class Git:
         repo_name = os.path.splitext(os.path.basename(path))[0]
         return repo_name
 
-    def _find_repo_path(self, base_path):
+    def _get_git_repo_candidates(self, base_path):
         """
-        Recursively searches for a git repository with a matching remote URL.
-        Returns the path to the repository if found, otherwise None.
+        Scans the base_path for directories containing a .git folder.
+        This is a blocking I/O operation.
+        """
+        if not os.path.isdir(base_path):
+            return []
+        candidates = []
+        for root, dirs, _ in os.walk(base_path):
+            if '.git' in dirs:
+                candidates.append(root)
+                dirs[:] = []  # Prune search deeper in this directory
+        return candidates
+
+    async def _find_repo_path(self, base_path):
+        """
+        Finds the path to a cloned repository matching self.url.
+        It first gets a list of potential git repositories and then
+        asynchronously checks their remote URL.
         """
         if self._found_repo_path and os.path.isdir(self._found_repo_path):
             return self._found_repo_path
 
-        if not os.path.isdir(base_path):
-            return None
+        candidates = await asyncio.to_thread(self._get_git_repo_candidates, base_path)
 
-        for root, dirs, _ in os.walk(base_path):
-            if '.git' in dirs:
-                repo_path_candidate = root
-                dirs[:] = []
-                try:
-                    remote_url = subprocess.check_output(
-                        ['git', 'config', '--get', 'remote.origin.url'],
-                        cwd=repo_path_candidate,
-                        text=True,
-                        stderr=subprocess.DEVNULL
-                    ).strip()
+        for repo_path_candidate in candidates:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    'git', 'config', '--get', 'remote.origin.url',
+                    cwd=repo_path_candidate,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL
+                )
+                stdout, _ = await proc.communicate()
+
+                if proc.returncode == 0:
+                    remote_url = stdout.decode().strip()
                     if remote_url == self.url:
                         self._found_repo_path = repo_path_candidate
                         return repo_path_candidate
-                except subprocess.CalledProcessError:
-                    continue
+            except Exception:
+                # Ignore errors (e.g., directory not found if deleted between scan and check)
+                continue
+        
         return None
 
-    def verify_access(self):
-        """Verifies access to the git repository."""
-        try:
-            subprocess.run(['git', 'ls-remote', self.url], check=True, capture_output=True)
-            return True
-        except subprocess.CalledProcessError:
-            return False
+    async def verify_access(self):
+        proc = await asyncio.create_subprocess_exec(
+            'git', 'ls-remote', self.url,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+        await proc.wait()
+        return proc.returncode == 0
 
-    def is_cloned(self, base_path="repos"):
-        """Checks if the repository is already cloned, and if so, pulls the latest changes."""
-        repo_path = self._find_repo_path(base_path)
-
+    async def is_cloned(self, base_path="repos"):
+        repo_path = await self._find_repo_path(base_path)
         if repo_path:
             print(f"Repository '{self.repo_name}' already exists at '{repo_path}'. Pulling latest changes...")
-            try:
-                subprocess.run(
-                    ['git', 'pull'],
-                    check=True,
-                    cwd=repo_path,
-                    capture_output=True,
-                    text=True
-                )
+            proc = await asyncio.create_subprocess_exec(
+                'git', 'pull',
+                cwd=repo_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode == 0:
                 print("Successfully pulled latest changes.")
-            except subprocess.CalledProcessError as e:
-                print(f"Error pulling latest changes: {e.stderr}")
+            else:
+                print(f"Error pulling latest changes: {stderr.decode()}")
             return True
         return False
 
-    def clone(self, base_path="repos"):
-        """Clones the repository into the specified path."""
-        if self._find_repo_path(base_path):
+    async def clone(self, base_path="repos"):
+        if await self._find_repo_path(base_path):
             print(f"Repository '{self.repo_name}' already cloned.")
             return False
 
@@ -88,30 +103,32 @@ class Git:
             clone_dir = base_path
         else:
             clone_dir = os.path.join(base_path, self.username)
-
+        
         repo_dir = os.path.join(clone_dir, self.repo_name)
 
         if os.path.isdir(repo_dir):
-            print(f"Directory '{repo_dir}' already exists but is not the correct repository. Cloning skipped.")
-            return False
+             print(f"Directory '{repo_dir}' already exists but is not the correct repository. Cloning skipped.")
+             return False
 
-        try:
-            os.makedirs(clone_dir, exist_ok=True)
-            subprocess.run(['git', 'clone', self.url], check=True, cwd=clone_dir)
+        await asyncio.to_thread(os.makedirs, clone_dir, exist_ok=True)
+        
+        proc = await asyncio.create_subprocess_exec(
+            'git', 'clone', self.url,
+            cwd=clone_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        _, stderr = await proc.communicate()
+
+        if proc.returncode == 0:
             self._found_repo_path = repo_dir
             return True
-        except subprocess.CalledProcessError as e:
-            print(f"Error cloning repository: {e.stderr.decode()}")
+        else:
+            print(f"Error cloning repository: {stderr.decode()}")
             return False
 
-    def get_codebase(self, base_path="repos"):
-        """Returns the entire codebase as a hashmap, filtered by code extensions."""
-        repo_path = self._find_repo_path(base_path)
-        if not repo_path:
-            print(f"Repository for URL '{self.url}' not found in '{base_path}'.")
-            return {}
-
-        codebase = {}
+    def _get_codebase_filepaths_blocking(self, repo_path):
+        filepaths = []
         code_extensions = [
             '.py', '.dart', '.c', '.cpp', '.h', '.hpp', '.java', '.js', '.ts',
             '.jsx', '.tsx', '.go', '.rs', '.swift', '.kt', '.kts', '.cs', '.php',
@@ -123,10 +140,34 @@ class Git:
                 continue
             for file in files:
                 if any(file.endswith(ext) for ext in code_extensions):
-                    file_path = os.path.join(root, file)
-                    try:
-                        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            codebase[os.path.relpath(file_path, repo_path)] = f.read()
-                    except Exception as e:
-                        print(f"Error reading file {file_path}: {e}")
+                    filepaths.append(os.path.join(root, file))
+        return filepaths
+
+    def _read_file_blocking(self, filepath):
+        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+            return f.read()
+
+    async def _read_file_async(self, filepath):
+        try:
+            return await asyncio.to_thread(self._read_file_blocking, filepath)
+        except Exception as e:
+            print(f"Error reading file {filepath}: {e}")
+            return None
+
+    async def get_codebase(self, base_path="repos"):
+        repo_path = await self._find_repo_path(base_path)
+        if not repo_path:
+            print(f"Repository for URL '{self.url}' not found in '{base_path}'.")
+            return {}
+        
+        filepaths = await asyncio.to_thread(self._get_codebase_filepaths_blocking, repo_path)
+        
+        tasks = [self._read_file_async(filepath) for filepath in filepaths]
+        contents = await asyncio.gather(*tasks)
+        
+        codebase = {}
+        for filepath, content in zip(filepaths, contents):
+            if content is not None:
+                relative_path = os.path.relpath(filepath, repo_path)
+                codebase[relative_path] = content
         return codebase

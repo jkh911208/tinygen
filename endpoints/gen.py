@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import ORJSONResponse
 from models import GenRequest
 from git import Git
-from utils import calculate_diffs, call_openai, SYSTEM_PROMPT
+from utils import calculate_diffs, call_openai_async, SYSTEM_PROMPT
 import orjson
 
 router = APIRouter(default_response_class=ORJSONResponse)
@@ -11,13 +11,13 @@ router = APIRouter(default_response_class=ORJSONResponse)
 async def generate(request: GenRequest):
     git = Git(request.url)
 
-    if not git.verify_access():
+    if not await git.verify_access():
         raise HTTPException(status_code=400, detail="Failed to verify access to the git repository.")
 
-    if not git.is_cloned():
-        git.clone()
+    if not await git.is_cloned():
+        await git.clone()
 
-    codebase = git.get_codebase()
+    codebase = await git.get_codebase()
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -26,7 +26,7 @@ async def generate(request: GenRequest):
 
     try:
         # First attempt
-        content_str = call_openai(messages)
+        content_str = await call_openai_async(messages)
 
         try:
             messages.extend([
@@ -40,7 +40,7 @@ async def generate(request: GenRequest):
             # Self-correction attempt
             messages[-1]["content"] = "The previous response was not a valid JSON object. Please provide the complete and correct JSON object as specified in the system prompt. Do not include any other text or explanations. " + messages[-1]["content"]
 
-        content_str = call_openai(messages)
+        content_str = await call_openai_async(messages)
 
         try:
             modified_files_dict = orjson.loads(content_str)
