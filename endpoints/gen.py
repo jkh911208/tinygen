@@ -19,6 +19,8 @@ async def generate(request: GenRequest):
         await git.clone()
 
     codebase = await git.get_codebase()
+    print("### codebase")
+    print(codebase)
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},

@@ -27,6 +27,7 @@ class Git:
         This is a blocking I/O operation.
         """
         if not os.path.isdir(base_path):
+            print(f"DEBUG: Base path '{base_path}' does not exist or is not a directory.")
             return []
         candidates = []
         for root, dirs, _ in os.walk(base_path):
@@ -41,12 +42,16 @@ class Git:
         It first gets a list of potential git repositories and then
         asynchronously checks their remote URL.
         """
+        print(f"DEBUG: _find_repo_path called with base_path='{base_path}' for URL='{self.url}'")
         if self._found_repo_path and os.path.isdir(self._found_repo_path):
+            print(f"DEBUG: Using cached repo path: {self._found_repo_path}")
             return self._found_repo_path
 
         candidates = await asyncio.to_thread(self._get_git_repo_candidates, base_path)
+        print(f"DEBUG: Found {len(candidates)} potential repo candidates: {candidates}")
 
         for repo_path_candidate in candidates:
+            print(f"DEBUG: Checking candidate: {repo_path_candidate}")
             try:
                 proc = await asyncio.create_subprocess_exec(
                     'git', 'config', '--get', 'remote.origin.url',
@@ -58,25 +63,40 @@ class Git:
 
                 if proc.returncode == 0:
                     remote_url = stdout.decode().strip()
-                    if remote_url == self.url:
+                    print(f"DEBUG: Candidate '{repo_path_candidate}' remote URL: '{remote_url}'")
+                    normalized_remote_url = remote_url.removesuffix('.git')
+                    normalized_self_url = self.url.removesuffix('.git')
+                    if normalized_remote_url == normalized_self_url:
+                        print(f"DEBUG: Match found! Repo path: {repo_path_candidate}")
                         self._found_repo_path = repo_path_candidate
                         return repo_path_candidate
-            except Exception:
-                # Ignore errors (e.g., directory not found if deleted between scan and check)
+                    else:
+                        print(f"DEBUG: No match. Expected '{self.url}', got '{remote_url}'")
+                else:
+                    print(f"DEBUG: Failed to get remote URL for '{repo_path_candidate}'. Return code: {proc.returncode}")
+            except Exception as e:
+                print(f"DEBUG: Error checking candidate '{repo_path_candidate}': {e}")
                 continue
         
+        print(f"DEBUG: No matching repository found for URL='{self.url}' in '{base_path}'.")
         return None
 
     async def verify_access(self):
+        print(f"DEBUG: Verifying access to {self.url}")
         proc = await asyncio.create_subprocess_exec(
             'git', 'ls-remote', self.url,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL
         )
         await proc.wait()
+        if proc.returncode == 0:
+            print(f"DEBUG: Access verified for {self.url}")
+        else:
+            print(f"DEBUG: Access verification failed for {self.url}. Return code: {proc.returncode}")
         return proc.returncode == 0
 
     async def is_cloned(self, base_path="repos"):
+        print(f"DEBUG: Checking if cloned: URL='{self.url}', base_path='{base_path}'")
         repo_path = await self._find_repo_path(base_path)
         if repo_path:
             print(f"Repository '{self.repo_name}' already exists at '{repo_path}'. Pulling latest changes...")
@@ -86,15 +106,17 @@ class Git:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            _, stderr = await proc.communicate()
+            stdout, stderr = await proc.communicate()
             if proc.returncode == 0:
                 print("Successfully pulled latest changes.")
             else:
                 print(f"Error pulling latest changes: {stderr.decode()}")
             return True
+        print(f"DEBUG: Repository '{self.repo_name}' not found in '{base_path}'.")
         return False
 
     async def clone(self, base_path="repos"):
+        print(f"DEBUG: Attempting to clone: URL='{self.url}', base_path='{base_path}'")
         if await self._find_repo_path(base_path):
             print(f"Repository '{self.repo_name}' already cloned.")
             return False
@@ -112,15 +134,17 @@ class Git:
 
         await asyncio.to_thread(os.makedirs, clone_dir, exist_ok=True)
         
+        print(f"DEBUG: Cloning '{self.url}' into '{clone_dir}'")
         proc = await asyncio.create_subprocess_exec(
             'git', 'clone', self.url,
             cwd=clone_dir,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        _, stderr = await proc.communicate()
+        stdout, stderr = await proc.communicate()
 
         if proc.returncode == 0:
+            print(f"DEBUG: Successfully cloned to {repo_dir}")
             self._found_repo_path = repo_dir
             return True
         else:
@@ -155,12 +179,14 @@ class Git:
             return None
 
     async def get_codebase(self, base_path="repos"):
+        print(f"DEBUG: get_codebase called for URL='{self.url}', base_path='{base_path}'")
         repo_path = await self._find_repo_path(base_path)
         if not repo_path:
-            print(f"Repository for URL '{self.url}' not found in '{base_path}'.")
+            print(f"Repository for URL '{self.url}' not found in '{base_path}'. Cannot get codebase.")
             return {}
         
         filepaths = await asyncio.to_thread(self._get_codebase_filepaths_blocking, repo_path)
+        print(f"DEBUG: Found {len(filepaths)} files in codebase for {repo_path}")
         
         tasks = [self._read_file_async(filepath) for filepath in filepaths]
         contents = await asyncio.gather(*tasks)
@@ -170,4 +196,5 @@ class Git:
             if content is not None:
                 relative_path = os.path.relpath(filepath, repo_path)
                 codebase[relative_path] = content
+        print(f"DEBUG: Codebase contains {len(codebase)} files.")
         return codebase
