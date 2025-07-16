@@ -16,6 +16,7 @@ client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", key))
 if not client.api_key:
     raise ValueError("OPENAI_API_KEY environment variable not set")
 
+
 def serialize_for_logging(obj):
     if isinstance(obj, BaseModel):
         return obj.model_dump()
@@ -62,17 +63,14 @@ def log_function_call_async(func):
             print("Supabase client not configured; skipping logging.")
         print(f"####function name: {func.__name__} done")
         return result
-    return wrapper
 
+    return wrapper
 
 
 @log_function_call_async
 async def call_openai_async(messages: list, model="gpt-4o-mini") -> str:
     """Calls the OpenAI API asynchronously."""
-    response = await client.chat.completions.create(
-        model=model,
-        messages=messages
-    )
+    response = await client.chat.completions.create(model=model, messages=messages)
     return response.choices[0].message.content
 
 
@@ -83,23 +81,21 @@ def call_openai(messages: list, model="gpt-4o-mini") -> str:
     # Re-initialize a synchronous client for this specific call if needed elsewhere,
     # or refactor existing synchronous calls to be async.
     sync_client = openai.OpenAI(api_key=client.api_key)
-    response = sync_client.chat.completions.create(
-        model=model,
-        messages=messages
-    )
+    response = sync_client.chat.completions.create(model=model, messages=messages)
     return response.choices[0].message.content
+
 
 def calculate_diffs(modified_files_dict, codebase):
     diffs = {}
     for path, new_code in modified_files_dict.items():
-        original_code = codebase.get(path, '')
+        original_code = codebase.get(path, "")
         diff = difflib.unified_diff(
             original_code.splitlines(keepends=True),
             new_code.splitlines(keepends=True),
-            fromfile=f'a/{path}',
-            tofile=f'b/{path}',
+            fromfile=f"a/{path}",
+            tofile=f"b/{path}",
         )
-        diffs[path] = ''.join(diff)
+        diffs[path] = "".join(diff)
     return diffs
 
 

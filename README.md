@@ -30,7 +30,14 @@ To set up TinyGen for local development, follow these steps:
     ```
     (Replace `"your_openai_api_key_here"` with your actual key.)
 
-5.  **Run the application with auto-reload:**
+5.  **Set your Supabase Credentials (Optional):**
+    If you are using Supabase, set your URL and public `anon` key as environment variables.
+    ```bash
+    export SUPABASE_URL="your_supabase_url_here"
+    export SUPABASE_KEY="your_supabase_anon_key_here"
+    ```
+
+6.  **Run the application with auto-reload:**
     ```bash
     python3 main.py
     ```
@@ -47,17 +54,21 @@ For deployment, you can use the provided Docker image.
     ```
 
 2.  **Run the Docker container:**
-    When running the container, you must provide your OpenAI API key using the `-e` (environment variable) option. Map the container's port 8000 to a desired host port (e.g., 8080).
+    When running the container, you must provide your environment variables using the `-e` option. Map the container's port 8000 to a desired host port (e.g., 8080).
 
     ```bash
-    docker run -d -p 8080:8000 -e OPENAI_API_KEY="your_openai_api_key_here" tinygen:latest
+    docker run -d -p 8080:8000 \
+      -e OPENAI_API_KEY="your_openai_api_key_here" \
+      -e SUPABASE_URL="your_supabase_url_here" \
+      -e SUPABASE_KEY="your_supabase_anon_key_here" \
+      tinygen:latest
     ```
-    (Replace `"your_openai_api_key_here"` with your actual key.)
+    (Replace the placeholder values with your actual credentials.)
 
     This command will:
     *   `-d`: Run the container in detached mode (in the background).
     *   `-p 8080:8000`: Map port 8080 on your host to port 8000 inside the container.
-    *   `-e OPENAI_API_KEY="your_openai_api_key_here"`: Pass your OpenAI API key as an environment variable to the container.
+    *   `-e VARIABLE="value"`: Pass your OpenAI API key and optional Supabase credentials as environment variables to the container.
     *   `tinygen:latest`: Specify the name and tag of the Docker image to use.
 
 The application will then be accessible on `http://localhost:8080` (or your host's IP address on port 8080).
