@@ -1,7 +1,11 @@
 import difflib
-import os
-import openai
 import functools
+import os
+
+import openai
+from pydantic import BaseModel
+
+from supabase_client import supabase
 
 # Get the OpenAI API key from an environment variable
 key = ""
@@ -12,13 +16,48 @@ client = openai.AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", key))
 if not client.api_key:
     raise ValueError("OPENAI_API_KEY environment variable not set")
 
+def serialize_for_logging(obj):
+    if isinstance(obj, BaseModel):
+        return obj.model_dump()
+    elif isinstance(obj, (list, tuple)):
+        return [serialize_for_logging(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: serialize_for_logging(v) for k, v in obj.items()}
+    else:
+        return obj
+
+
 def log_function_call_async(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
-        print(f"Calling function: {func.__name__}")
-        print(f"  Arguments: args={args}, kwargs={kwargs}")
+        # Prepare input data for logging
+        input_data = {
+            "args": serialize_for_logging(args),
+            "kwargs": serialize_for_logging(kwargs),
+        }
+        print(f"####function name: {func.__name__}")
+
+        # Call the function
         result = await func(*args, **kwargs)
-        print(f"  Function {func.__name__} returned: {result}")
+
+        # Prepare output data for logging
+        if isinstance(result, dict):
+            output_data = serialize_for_logging(result)
+        else:
+            output_data = {"result": serialize_for_logging(result)}
+
+        # Log to Supabase
+        try:
+            supabase.table("function_log").insert(
+                {
+                    "function_name": func.__name__,
+                    "input": input_data,
+                    "output": output_data,
+                }
+            ).execute()
+        except Exception as e:
+            print(f"Failed to log to Supabase: {e}")
+        print(f"####function name: {func.__name__} done")
         return result
     return wrapper
 
@@ -66,7 +105,7 @@ SYSTEM_PROMPT = """You are a silent, automated code modification engine. Your so
 Follow these rules strictly:
 1. Your entire response MUST be a single JSON object.
 2. The keys of the JSON object are the file paths (e.g., `src/app.js`).
-3. The values of the JSON object are the complete, new content of the file, from the first line to the last. All special characters within the content (e.g., backslashes `\`, double quotes `"`) MUST be properly JSON-escaped. For example, a literal backslash `\` should be `\\`, and a literal double quote `"` should be `\"`. Do not over-escape. Do not use code blocks (```) or any other formatting within the content.
+3. The values of the JSON object are the complete, new content of the file, from the first line to the last. All special characters within the content (e.g., backslashes `\\`, double quotes `"`) MUST be properly JSON-escaped. For example, a literal backslash `\\` should be `\\\\`, and a literal double quote `"` should be `\"`. Do not over-escape. Do not use code blocks (```) or any other formatting within the content.
 4. For **deleted** files, the value should be an empty string (`""`).
 5. You MUST NOT include any other text, explanations, apologies, or comments outside the JSON object. Your response must be ONLY the JSON object.
 6. Only change the code that is absolutely necessary to complete the user's request. Do not reformat, refactor, or make any other unnecessary changes to the code.
@@ -76,8 +115,8 @@ Follow these rules strictly:
 
 ```json
 {
-  "src/app.js": "// new content for app.js\n// ... all lines of the file ...\nconst path = \"C:\\Users\\\";\nconsole.log(\"This is the new app.js\");\n",
-  "src/styles.css": "/* new styles.css file content */\nbody {\n  color: blue;\n}\n",
+  "src/app.js": "// new content for app.js\\n// ... all lines of the file ...\\nconst path = \\"C:\\\\Users\\\\\\";\\nconsole.log(\\"This is the new app.js\\");\\n",
+  "src/styles.css": "/* new styles.css file content */\\nbody {\\n  color: blue;\\n}\\n",
   "old/component.js": ""
 }
 ```
