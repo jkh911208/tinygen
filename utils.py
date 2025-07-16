@@ -46,17 +46,20 @@ def log_function_call_async(func):
         else:
             output_data = {"result": serialize_for_logging(result)}
 
-        # Log to Supabase
-        try:
-            supabase.table("function_log").insert(
-                {
-                    "function_name": func.__name__,
-                    "input": input_data,
-                    "output": output_data,
-                }
-            ).execute()
-        except Exception as e:
-            print(f"Failed to log to Supabase: {e}")
+        # Log to Supabase only if supabase client is available
+        if supabase is not None:
+            try:
+                supabase.table("function_log").insert(
+                    {
+                        "function_name": func.__name__,
+                        "input": input_data,
+                        "output": output_data,
+                    }
+                ).execute()
+            except Exception as e:
+                print(f"Failed to log to Supabase: {e}")
+        else:
+            print("Supabase client not configured; skipping logging.")
         print(f"####function name: {func.__name__} done")
         return result
     return wrapper

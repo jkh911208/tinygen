@@ -3,7 +3,12 @@ import os
 from supabase import Client, create_client
 
 # Get Supabase URL and anonymous key from environment variables
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY")
+url = ""
+key = ""
+SUPABASE_URL = os.getenv("SUPABASE_URL", url)
+SUPABASE_KEY = os.getenv("SUPABASE_ANON_KEY", key)
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) 
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+else:
+    supabase = None
