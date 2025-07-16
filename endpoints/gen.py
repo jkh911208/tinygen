@@ -48,7 +48,7 @@ async def generate(request: GenRequest):
         try:
             modified_files_dict = orjson.loads(content_str)
         except orjson.JSONDecodeError as e_corrected:
-            raise HTTPException(status_code=500, detail=f"Self-correction failed: Failed to parse AI response as JSON: {e_corrected}. Original error: {e}")
+            raise HTTPException(status_code=500, detail=f"Self-correction failed: Failed to parse AI response as JSON: {e_corrected}.")
 
         diffs = calculate_diffs(modified_files_dict, codebase)
 
