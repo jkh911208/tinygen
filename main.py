@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from endpoints import gen
+from endpoints import gen, recent
 
 app = FastAPI(default_response_class=ORJSONResponse)
 
@@ -17,6 +17,7 @@ app.add_middleware(
 
 # POST /gen endpoint
 app.include_router(gen.router)
+app.include_router(recent.router)
 
 if __name__ == "__main__":
     import uvicorn

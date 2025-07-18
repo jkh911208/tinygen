@@ -38,6 +38,7 @@ async def generate(request: GenRequest):
         },
     ]
 
+    e = None
     try:
         # First attempt
         content_str = await call_openai_async(messages)
@@ -72,9 +73,10 @@ async def generate(request: GenRequest):
         try:
             modified_files_dict = orjson.loads(content_str)
         except orjson.JSONDecodeError as e_corrected:
+            original_error = f"Original error: {e}" if e else ""
             raise HTTPException(
                 status_code=500,
-                detail=f"Self-correction failed: Failed to parse AI response as JSON: {e_corrected}.",
+                detail=f"Self-correction failed: Failed to parse AI response as JSON: {e_corrected}. {original_error}",
             )
 
         diffs = calculate_diffs(modified_files_dict, codebase)
