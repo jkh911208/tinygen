@@ -56,6 +56,19 @@ For deployment, you can use the provided Docker image.
 2.  **Run the Docker container:**
     When running the container, you must provide your environment variables using the `-e` option. Map the container's port 8000 to a desired host port (e.g., 8080).
 
+    The Supabase environment variables are optional. If they are not provided, the application will run without logging to Supabase.
+
+        The application uses a hard-coded table named `function_log`. You will need to create this table in your Supabase project if you wish to use the logging feature.
+
+    **Required fields:**
+    - `function_name`: `text`
+    - `input`: `json`
+    - `output`: `json`
+
+    **Recommended fields for better logging:**
+    - `id`: `bigint` (auto-incrementing primary key)
+    - `created_at`: `timestamp with time zone` (defaulting to the current time)
+
     ```bash
     docker run -d -p 8080:8000 \
       -e OPENAI_API_KEY="your_openai_api_key_here" \
